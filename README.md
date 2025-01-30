@@ -30,10 +30,6 @@ sh scripts/sample_data.sh
 sh scripts/construct_reference_list.sh
 ```
 
-```bash
-# To Be Updated
-```
-
 ### Experiments
 ```bash
 # Should run ES retriever manually
