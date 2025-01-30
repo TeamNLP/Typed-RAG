@@ -1,0 +1,3 @@
+LLM_TEMPERATURE = 0.8  # LINKAGE setting
+LLM_TOP_P = 0.95  # LINKAGE setting
+LLM_MAX_TOKENS = 512  # LINKAGE setting

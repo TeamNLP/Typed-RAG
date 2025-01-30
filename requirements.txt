@@ -1,0 +1,25 @@
+accelerate>=0.21.0
+pandas
+openai
+python-dotenv
+loguru
+transformers
+datasets
+jsonlines
+ujson
+ftfy
+scipy
+vllm==0.6.4
+scikit-learn
+easy_elasticsearch
+elasticsearch==7.9.1
+beautifulsoup4
+uvicorn[standard]
+base58
+evaluate
+langchain
+langchain_community
+langchain_huggingface 
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1
