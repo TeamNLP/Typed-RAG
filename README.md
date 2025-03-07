@@ -12,8 +12,7 @@ data/reference_list_construction/$subdataset/annotated_odqa_nf_test.jsonl
 ```bash
 conda create -n nfqa python=3.9
 conda activate nfqa
-sh scripts/env_setup.sh
-sh scripts/elasticsearch_setup.sh
+pip install -r requirements.txt
 ```
 
 ### Dataset Preparation & Preprocessing
@@ -24,8 +23,13 @@ sh scripts/classify_data.sh
 sh scripts/sample_data.sh
 ```
 
-### Reference Answers Construction & Annotation
+### Elasticsearch Setup
+```bash
+python retriever/process_wiki.py
+sh scripts/elasticsearch_setup.sh
+```
 
+### Reference Answers Construction & Annotation
 ```bash
 sh scripts/construct_reference_list.sh
 ```

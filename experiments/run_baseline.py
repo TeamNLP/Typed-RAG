@@ -63,9 +63,8 @@ def make_prompt_batch(
     system_prompt: str,
     input_instances: List[Dict[str, Any]],
     method: str,
-    use_gpt: bool,
     retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] = None,
-) -> Union[List[List[Dict[str, str]]], List[str]]:
+) -> List[List[Dict[str, str]]]:
     """
     Make prompt batch for the given input instances.
 
@@ -74,11 +73,10 @@ def make_prompt_batch(
     - system_prompt: str - system prompt
     - input_instances: List[Dict[str, Any]] - list of input instances
     - method: str - method
-    - use_gpt: bool - whether to use GPT
     - retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] - retriever
 
     Returns:
-    - prompt_batch: Union[List[List[Dict[str, str]]], List[str]] - prompt batch
+    - prompt_batch: List[List[Dict[str, str]]] - prompt batch
     """
 
     prompt_batch = []
@@ -94,15 +92,11 @@ def make_prompt_batch(
                 references=references_text, query=question_text
             )
 
-        if use_gpt:  # Format prompt for OpenAI API if using GPT
-            formatted_chat_template = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": input_prompt},
-            ]
-            prompt_batch.append(formatted_chat_template)
-        else:
-            input_prompt = f"{system_prompt}\n{input_prompt}"
-            prompt_batch.append(input_prompt)
+        formatted_chat_template = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": input_prompt},
+        ]
+        prompt_batch.append(formatted_chat_template)
 
     return prompt_batch
 
@@ -158,7 +152,10 @@ def generate_model_output_batch(
             device=device,
             gpu_memory_utilization=VLLM_GPU_MEMORY_UTILIZATION,
         )
-        vllm_output_list = llm.generate(prompt_batch, sampling_params)
+        vllm_output_list = llm.generate(
+            messages=prompt_batch, 
+            sampling_params=sampling_params
+        )
         output_list = [output.outputs[0].text for output in vllm_output_list]
 
     return output_list
@@ -285,7 +282,7 @@ def main():
         prompt_template = LLM_PROMPT_TEMPLATE
 
         prompt_batch = make_prompt_batch(
-            prompt_template, system_prompt, input_instances, args.method, use_gpt
+            prompt_template, system_prompt, input_instances, args.method
         )
     elif args.method == "RAG":
         system_prompt = RAG_SYS_PROMPT
@@ -323,7 +320,6 @@ def main():
             system_prompt,
             input_instances,
             args.method,
-            use_gpt,
             retriever,
         )
 

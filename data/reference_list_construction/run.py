@@ -32,6 +32,7 @@ MODEL_PATH_TO_ALIAS = {
     "mistralai/Mistral-7B-Instruct-v0.2": "mistral-7b-ins",
     "meta-llama/Meta-Llama-3-8B-Instruct": "llama-3-8b-ins",
     "meta-llama/Meta-Llama-3.1-8B-Instruct": "llama-3.1-8b-ins",
+    "meta-llama/Meta-Llama-3.2-3B-Instruct": "llama-3.2-3b-ins",
 }
 
 
@@ -107,6 +108,7 @@ def main():
             "meta-llama/Meta-Llama-3.1-8B-Instruct",
             "gpt-4o-mini-2024-07-18",
             "meta-llama/Meta-Llama-3-8B-Instruct",
+            "meta-llama/Meta-Llama-3.2-3B-Instruct",
             "gpt-4o-2024-08-06",
             "gpt-3.5-turbo-16k",
         ),
@@ -224,11 +226,12 @@ def main():
 
                 output_instances.append(instance)
 
-        # Use VLLM for Mistral-7B-Instruct-v0.2, Meta-Llama-3-8B-Instruct, and Meta-Llama-3.1-8B-Instruct
+        # Use VLLM for Mistral-7B-Instruct-v0.2, Meta-Llama-3.2-3B-Instruct, Meta-Llama-3-8B-Instruct, and Meta-Llama-3.1-8B-Instruct
         elif (
             args.model_path == "mistralai/Mistral-7B-Instruct-v0.2"
             or args.model_path == "meta-llama/Meta-Llama-3-8B-Instruct"
             or args.model_path == "meta-llama/Meta-Llama-3.1-8B-Instruct"
+            or args.model_path == "meta-llama/Meta-Llama-3.2-3B-Instruct"
         ):
             huggingface_token = os.environ.get("HUGGINGFACE_TOKEN")
             login(token=huggingface_token)

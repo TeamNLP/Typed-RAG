@@ -152,19 +152,19 @@ def generate_model_output(
     - output_str: str - model output
     """
 
-    if use_gpt:
-        if isinstance(prompt, list):
-            formatted_chat_template = prompt
-        else:
-            formatted_chat_template = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ]
+    if isinstance(prompt, list):
+        formatted_chat_template = prompt
+    else:
+        formatted_chat_template = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
 
+    if use_gpt:
         try:
             response = openai_client.chat.completions.create(
                 model=generator_model_path,
-                messages=prompt,
+                messages=formatted_chat_template,
                 temperature=LLM_TEMPERATURE,
                 top_p=LLM_TOP_P,
                 max_tokens=LLM_MAX_TOKENS,
@@ -179,10 +179,11 @@ def generate_model_output(
             gpt_prediction = ""
         return gpt_prediction
     else:
-        if system_prompt != DEFAULT_SYS_PROMPT:
-            prompt = f"{system_prompt}\n{prompt}"
-
-        return llm.generate(prompt, sampling_params, use_tqdm=False)[0].outputs[0].text
+        return llm.chat(
+            messages=formatted_chat_template, 
+            sampling_params=sampling_params, 
+            use_tqdm=False
+        )[0].outputs[0].text
 
 
 def generate_model_output_batch(
@@ -233,7 +234,10 @@ def generate_model_output_batch(
                 gpt_prediction = ""
             output_list.append(gpt_prediction)
     else:
-        vllm_output_list = llm.generate(prompt_batch, sampling_params)
+        vllm_output_list = llm.chat(
+            messages=prompt_batch, 
+            sampling_params=sampling_params
+        )
         output_list = [output.outputs[0].text for output in vllm_output_list]
 
     return output_list
@@ -297,33 +301,26 @@ def rerank_passages(
 def make_RAG_prompt(
     question_text: str,
     retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] = None,
-    use_gpt: bool = False,
-) -> Union[List[Dict[str, str]], str]:
+) -> List[Dict[str, str]]:
     """
     Make RAG prompt for the given question text.
 
     Args:
     - question_text: str - question text
     - retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] - BM25 retriever
-    - use_gpt: bool - whether to use GPT
 
     Returns:
-    - formatted_chat_template or input_prompt: Union[List[Dict[str, str]], str] - formatted chat template or input prompt
+    - formatted_chat_template: List[Dict[str, str]] - formatted chat template
     """
     references_text = retriever.retrieve(question_text, return_type="str")
     input_prompt = RAG_PROMPT_TEMPLATE.format(
         references=references_text, query=question_text
     )
 
-    if use_gpt:  # Format prompt for OpenAI API if using GPT
-        formatted_chat_template = [
-            {"role": "system", "content": RAG_SYS_PROMPT},
-            {"role": "user", "content": input_prompt},
-        ]
-        return formatted_chat_template
-    else:
-        input_prompt = f"{RAG_SYS_PROMPT}\n{input_prompt}"
-        return input_prompt
+    return [
+        {"role": "system", "content": RAG_SYS_PROMPT},
+        {"role": "user", "content": input_prompt},
+    ]
 
 
 def make_NFQA_prompt_batch(
@@ -336,7 +333,7 @@ def make_NFQA_prompt_batch(
     sampling_params: Optional[SamplingParams] = None,
     retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] = None,
     hf_embeddings: Optional[HuggingFaceEmbeddings] = None,
-) -> Union[List[List[Dict[str, str]]], List[str]]:
+) -> List[List[Dict[str, str]]]:
     """
     Make prompt batch for the given input instances.
 
@@ -351,7 +348,7 @@ def make_NFQA_prompt_batch(
     - retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] - retriever
 
     Returns:
-    - prompt_batch: Union[List[List[Dict[str, str]]], List[str]] - prompt batch
+    - prompt_batch: List[List[Dict[str, str]]] - prompt batch
     """
 
     prompt_batch = []
@@ -368,7 +365,7 @@ def make_NFQA_prompt_batch(
             or category_prediction == "EVIDENCE-BASED"
         ):
             # START OF FACTOID, EVIDENCE-BASED, OR NOT-A-QUESTION
-            prompt_batch.append(make_RAG_prompt(question_text, retriever, args.use_gpt))
+            prompt_batch.append(make_RAG_prompt(question_text, retriever))
             continue
             # END OF FACTOID, EVIDENCE-BASED, OR NOT-A-QUESTION
         elif category_prediction == "DEBATE":
@@ -418,7 +415,7 @@ def make_NFQA_prompt_batch(
 
             if not check_valid_output(subquery_generation_output_str):
                 prompt_batch.append(
-                    make_RAG_prompt(question_text, retriever, args.use_gpt)
+                    make_RAG_prompt(question_text, retriever)
                 )
                 continue
 
@@ -454,15 +451,11 @@ def make_NFQA_prompt_batch(
                 debate_topic=debate_topic, responses=participant_responses
             )
 
-            if args.use_gpt:  # Format prompt for OpenAI API if using GPT
-                formatted_chat_template = [
-                    {"role": "system", "content": DEBATE_MEDIATOR_SYS_PROMPT},
-                    {"role": "user", "content": input_prompt},
-                ]
-                prompt_batch.append(formatted_chat_template)
-            else:
-                input_prompt = f"{DEBATE_MEDIATOR_SYS_PROMPT}\n{input_prompt}"
-                prompt_batch.append(input_prompt)
+            formatted_chat_template = [
+                {"role": "system", "content": DEBATE_MEDIATOR_SYS_PROMPT},
+                {"role": "user", "content": input_prompt},
+            ]
+            prompt_batch.append(formatted_chat_template)
             continue
             # END OF DEBATE
         elif category_prediction == "INSTRUCTION" or category_prediction == "REASON":
@@ -507,7 +500,7 @@ def make_NFQA_prompt_batch(
                 assert len(sub_query_list) > 0, "Empty sub-query list."
             except Exception as e:
                 prompt_batch.append(
-                    make_RAG_prompt(question_text, retriever, args.use_gpt)
+                    make_RAG_prompt(question_text, retriever)
                 )
                 continue
 
@@ -535,7 +528,7 @@ def make_NFQA_prompt_batch(
                 ), "Number of sub-queries and sub-answers do not match."
             except Exception as e:
                 prompt_batch.append(
-                    make_RAG_prompt(question_text, retriever, args.use_gpt)
+                    make_RAG_prompt(question_text, retriever)
                 )
                 continue
 
@@ -548,15 +541,11 @@ def make_NFQA_prompt_batch(
                 original_question=question_text, qa_pairs_text=qa_pairs_text
             )
 
-            if args.use_gpt:  # Format prompt for OpenAI API if using GPT
-                formatted_chat_template = [
-                    {"role": "system", "content": AGGREGATOR_SYS_PROMPT},
-                    {"role": "user", "content": input_prompt},
-                ]
-                prompt_batch.append(formatted_chat_template)
-            else:
-                input_prompt = f"{AGGREGATOR_SYS_PROMPT}\n{input_prompt}"
-                prompt_batch.append(input_prompt)
+            formatted_chat_template = [
+                {"role": "system", "content": AGGREGATOR_SYS_PROMPT},
+                {"role": "user", "content": input_prompt},
+            ]
+            prompt_batch.append(formatted_chat_template)
             continue
             # END OF INSTRUCTION OR REASON
         elif category_prediction == "EXPERIENCE":
@@ -589,15 +578,11 @@ def make_NFQA_prompt_batch(
                 references=reranked_passages_str, query=question_text
             )
 
-            if args.use_gpt:  # Format prompt for OpenAI API if using GPT
-                formatted_chat_template = [
-                    {"role": "system", "content": RAG_SYS_PROMPT},
-                    {"role": "user", "content": input_prompt},
-                ]
-                prompt_batch.append(formatted_chat_template)
-            else:
-                input_prompt = f"{RAG_SYS_PROMPT}\n{input_prompt}"
-                prompt_batch.append(input_prompt)
+            formatted_chat_template = [
+                {"role": "system", "content": RAG_SYS_PROMPT},
+                {"role": "user", "content": input_prompt},
+            ]
+            prompt_batch.append(formatted_chat_template)
             continue
             # END OF EXPERIENCE
         elif category_prediction == "COMPARISON":
@@ -657,7 +642,7 @@ def make_NFQA_prompt_batch(
                 assert analysis_dict["is_compare"] == True, "Not a comparison question."
             except Exception as e:
                 prompt_batch.append(
-                    make_RAG_prompt(question_text, retriever, args.use_gpt)
+                    make_RAG_prompt(question_text, retriever)
                 )
                 continue
 
@@ -683,15 +668,11 @@ def make_NFQA_prompt_batch(
                 references=reranked_passages_str,
             )
 
-            if args.use_gpt:  # Format prompt for OpenAI API if using GPT
-                formatted_chat_template = [
-                    {"role": "system", "content": RAG_SYS_PROMPT},
-                    {"role": "user", "content": input_prompt},
-                ]
-                prompt_batch.append(formatted_chat_template)
-            else:
-                input_prompt = f"{RAG_SYS_PROMPT}\n{input_prompt}"
-                prompt_batch.append(input_prompt)
+            formatted_chat_template = [
+                {"role": "system", "content": RAG_SYS_PROMPT},
+                {"role": "user", "content": input_prompt},
+            ]
+            prompt_batch.append(formatted_chat_template)
             continue
             # END OF COMPARISON
 
