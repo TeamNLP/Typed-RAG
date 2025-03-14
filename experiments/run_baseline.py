@@ -22,10 +22,12 @@ from openai import OpenAI
 from prompt_templates import DEFAULT_SYS_PROMPT
 from prompt_templates import LLM_SYS_PROMPT, LLM_PROMPT_TEMPLATE
 from prompt_templates import RAG_SYS_PROMPT, RAG_PROMPT_TEMPLATE
-from retriever.bing_search import BingSearchRetriever
+from prompt_templates import SELF_ASK_TEMPLATE_SUFFIX, SELF_ASK_PROMPT_TEMPLATE
 from retriever.bm25 import BM25Retriever
+from self_ask_demonstrations import musique_3shot_demonstrations, twowikimultihopqa_3shot_demonstrations, hotpotqa_3shot_demonstrations
 from tqdm import tqdm
 from vllm import LLM, SamplingParams
+from vllm.entrypoints.llm import LLM as vLLM_client
 
 
 DEBUG_QUERY = "What is the capital of South Korea?"
@@ -48,9 +50,6 @@ DATASET_TO_RETRIEVER = {
     "nq": "BM25Retriever",
     "squad": "BM25Retriever",
     "trivia": "BM25Retriever",
-    "webglmqa": "BingSearchRetriever",
-    "antique": "BingSearchRetriever",
-    "trecdlnf": "BingSearchRetriever",
 }
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -63,7 +62,12 @@ def make_prompt_batch(
     system_prompt: str,
     input_instances: List[Dict[str, Any]],
     method: str,
-    retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] = None,
+    retriever: Optional[BM25Retriever] = None,
+    args: Optional[argparse.Namespace] = None,
+    use_gpt: Optional[bool] = False,
+    llm_client: Union[OpenAI, vLLM_client] = None,
+    sampling_params: Optional[SamplingParams] = None,
+    device: str = "cuda:0" if torch.cuda.is_available() else "cpu",
 ) -> List[List[Dict[str, str]]]:
     """
     Make prompt batch for the given input instances.
@@ -73,7 +77,12 @@ def make_prompt_batch(
     - system_prompt: str - system prompt
     - input_instances: List[Dict[str, Any]] - list of input instances
     - method: str - method
-    - retriever: Optional[Union[BM25Retriever, BingSearchRetriever]] - retriever
+    - retriever: Optional[BM25Retriever] - retriever
+    - args: Optional[argparse.Namespace] - arguments
+    - use_gpt: Optional[bool] - whether to use GPT
+    - llm_client: Union[OpenAI, vLLM_client] - LLM client
+    - sampling_params: Optional[SamplingParams] - sampling parameters
+    - device: str - device
 
     Returns:
     - prompt_batch: List[List[Dict[str, str]]] - prompt batch
@@ -91,12 +100,18 @@ def make_prompt_batch(
             input_prompt = prompt_template.format(
                 references=references_text, query=question_text
             )
+        else:
+            raise ValueError(f"Invalid method: {method}")
 
-        formatted_chat_template = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": input_prompt},
-        ]
-        prompt_batch.append(formatted_chat_template)
+        if use_gpt:
+            formatted_chat_template = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": input_prompt},
+            ]
+            prompt_batch.append(formatted_chat_template)
+        else:
+            unformatted_chat_template = f"{system_prompt}\n{input_prompt}"
+            prompt_batch.append(unformatted_chat_template)
 
     return prompt_batch
 
@@ -105,7 +120,7 @@ def generate_model_output_batch(
     model_path: str,
     prompt_batch: Union[List[str], List[List[Dict[str, str]]]],
     use_gpt: bool = False,
-    openai_client: Optional[OpenAI] = None,
+    llm_client: Union[OpenAI, vLLM_client] = None,
     sampling_params: Optional[SamplingParams] = None,
     device: str = "cuda",
 ) -> List[str]:
@@ -114,8 +129,8 @@ def generate_model_output_batch(
 
     Args:
     - model_path: str - path to the model
-    - prompt_batch: List[str] - list of prompts
-    - openai_client: Optional[OpenAI] - OpenAI client
+    - prompt_batch: Union[List[str], List[List[Dict[str, str]]]] - list of prompts or chat templates
+    - llm_client: Union[OpenAI, vLLM_client] - OpenAI client or vLLM client
     - sampling_params: Optional[SamplingParams] - sampling parameters
     - device: str - device to use
 
@@ -130,7 +145,7 @@ def generate_model_output_batch(
             prompt_batch, desc="Generating model output using OpenAI GPT"
         ):
             try:
-                response = openai_client.chat.completions.create(
+                response = llm_client.chat.completions.create(
                     model=model_path,
                     messages=formatted_chat_template,
                     temperature=LLM_TEMPERATURE,
@@ -138,7 +153,7 @@ def generate_model_output_batch(
                     max_tokens=LLM_MAX_TOKENS,
                 )
                 gpt_prediction = response.choices[0].message.content.strip()
-            except openai.error.OpenAIError as e:
+            except openai.OpenAIError as e:
                 logging.error(
                     "Error in generating model output for prompt: %s. Error: %s",
                     formatted_chat_template,
@@ -147,13 +162,8 @@ def generate_model_output_batch(
                 gpt_prediction = ""
             output_list.append(gpt_prediction)
     else:
-        llm = LLM(
-            model=model_path,
-            device=device,
-            gpu_memory_utilization=VLLM_GPU_MEMORY_UTILIZATION,
-        )
-        vllm_output_list = llm.generate(
-            messages=prompt_batch, 
+        vllm_output_list = llm_client.generate(
+            prompts=prompt_batch, 
             sampling_params=sampling_params
         )
         output_list = [output.outputs[0].text for output in vllm_output_list]
@@ -186,7 +196,7 @@ def main():
             "gpt-4o-mini-2024-07-18",
             "mistralai/Mistral-7B-Instruct-v0.2",
             "meta-llama/Llama-3.2-3B-Instruct",
-            "meta-llama/Llama-3.1-70B-Instruct",
+            "meta-llama/Llama-3.1-8B-Instruct",
         ),
     )
     parser.add_argument(
@@ -231,26 +241,44 @@ def main():
     parser.add_argument("--debug", type=str2bool, default=False)
     args = parser.parse_args()
 
-    openai_client = None
-    sampling_params = None
+    if "self-ask" in args.method.lower():
+        sampling_params = SamplingParams(
+            temperature=LLM_TEMPERATURE,
+            top_p=LLM_TOP_P,
+            max_tokens=LLM_MAX_TOKENS,
+            stop="Intermediate answer"
+        )
+    else:
+        sampling_params = SamplingParams(
+            temperature=LLM_TEMPERATURE,
+            top_p=LLM_TOP_P,
+            max_tokens=LLM_MAX_TOKENS,
+        )
 
     if args.model_path.startswith("gpt"):
         use_gpt = True
         logging.getLogger("openai").setLevel(logging.ERROR)
         api_key = os.environ.get("OPENAI_API_KEY")
-        openai_client = OpenAI(api_key=api_key)
+        llm_client = OpenAI(api_key=api_key)
 
         if args.model_path == "gpt-4o-mini-2024-07-18":
             model_alias = "gpt-4o-mini"
     else:
         use_gpt = False
 
+        llm_client = LLM(
+            model=args.model_path,
+            device=device,
+            gpu_memory_utilization=VLLM_GPU_MEMORY_UTILIZATION,
+            task="generate"
+        )
+
         if args.model_path == "mistralai/Mistral-7B-Instruct-v0.2":
             model_alias = "mistral-7b-ins"
         elif args.model_path == "meta-llama/Llama-3.2-3B-Instruct":
             model_alias = "llama-3.2-3b-ins"
-        elif args.model_path == "meta-llama/Llama-3.1-70B-Instruct":
-            model_alias = "llama-3.1-70b-ins"
+        elif args.model_path == "meta-llama/Llama-3.1-8B-Instruct":
+            model_alias = "llama-3.1-8b-ins"
 
     if args.file_name is None:
         if args.dataset_name not in DATASET_TO_FILE_NAME:
@@ -282,7 +310,10 @@ def main():
         prompt_template = LLM_PROMPT_TEMPLATE
 
         prompt_batch = make_prompt_batch(
-            prompt_template, system_prompt, input_instances, args.method
+            prompt_template=prompt_template, 
+            system_prompt=system_prompt, 
+            input_instances=input_instances, 
+            method=args.method
         )
     elif args.method == "RAG":
         system_prompt = RAG_SYS_PROMPT
@@ -291,12 +322,6 @@ def main():
         if args.dataset_name not in DATASET_TO_RETRIEVER:
             logging.error("Retriever not found for dataset: %s", args.dataset_name)
             return
-        elif DATASET_TO_RETRIEVER[args.dataset_name] == "BingSearchRetriever":
-            retriever = BingSearchRetriever(
-                top_n=args.retriever_top_n,
-                reranker_model_path=args.reranker_model_path,
-                dataset_name=args.dataset_name,
-            )
         elif DATASET_TO_RETRIEVER[args.dataset_name] == "BM25Retriever":
             retriever = BM25Retriever(
                 corpus_name="wiki",
@@ -316,15 +341,15 @@ def main():
             )
 
         prompt_batch = make_prompt_batch(
-            prompt_template,
-            system_prompt,
-            input_instances,
-            args.method,
-            retriever,
+            prompt_template=prompt_template, 
+            system_prompt=system_prompt, 
+            input_instances=input_instances, 
+            method=args.method,
+            retriever=retriever,
         )
 
     output_list = generate_model_output_batch(
-        args.model_path, prompt_batch, use_gpt, openai_client, sampling_params, device
+        args.model_path, prompt_batch, use_gpt, llm_client, sampling_params, device
     )
     assert len(input_instances) == len(
         output_list

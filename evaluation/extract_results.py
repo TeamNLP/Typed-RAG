@@ -91,6 +91,7 @@ if __name__ == "__main__":
     for scorer_model in ["mistral-7b-ins", "gpt-4o-mini"]:
         for target_model in ["llama-3.2-3b-ins", "mistral-7b-ins", "gpt-4o-mini"]:
             results_directory = f"evaluation/LINKAGE_results/{target_model}"
+            print(f"Scoring {target_model} with {scorer_model}")
 
             scores_by_methods = extract_scores_by_methods(results_directory, METHODS, scorer_model)
 

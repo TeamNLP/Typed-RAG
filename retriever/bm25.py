@@ -22,9 +22,11 @@ class BM25Retriever:
         if self.corpus_name == "wiki":
             print("Start reading the corpus data...")
             print("It will take few minutes...")
-            chunks_glob_filepath = os.path.join(
-                os.path.dirname(os.path.realpath(__file__)), "wiki_corpus.json"
-            )
+            # chunks_glob_filepath = os.path.join(
+            #     os.path.dirname(os.path.realpath(__file__)), "wiki_corpus.json"
+            # )
+            chunks_glob_filepath = "/data3/donggeonlee/Typed-RAG/retriever/wiki_corpus.json"
+
             corpus = read_json(chunks_glob_filepath)
             print("End reading the corpus data...")
         else:

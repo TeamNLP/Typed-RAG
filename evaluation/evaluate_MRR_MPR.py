@@ -58,7 +58,7 @@ def main():
         "DEBATE"
     ]
         
-    for target_model in ["llama-3.2-3b-ins", "mistral-7b-ins"]:
+    for target_model in ["llama-3.2-3b-ins", "mistral-7b-ins", "gpt-4o-mini"]:
         results_directory = f"evaluation/LINKAGE_results/{target_model}"
 
         jsonl_file_list = os.listdir(results_directory)
@@ -71,7 +71,7 @@ def main():
 
             dataset, scorer_model = temp_str.split("_LINKAGE_results_by_")
             scorer_model = scorer_model.replace(".jsonl", "")
-            assert scorer_model in ["mistral-7b-ins", "gpt-4o-mini"], f"Unknown scorer model: {scorer_model}"
+            assert scorer_model in ["mistral-7b-ins", "gpt-4o-mini", "gpt-4o"], f"Unknown scorer model: {scorer_model}"
             result_instance = read_jsonl(os.path.join(results_directory, jsonl_file_path))
 
             if dataset == "Wiki-NFQA_annotated_odqa_nf_test":
@@ -94,6 +94,7 @@ def main():
                         scores_json = {
                             "mistral-7b-ins": {"MRR": None, "MPR": None},
                             "gpt-4o-mini": {"MRR": None, "MPR": None},
+                            "gpt-4o": {"MRR": None, "MPR": None},
                         }
                         write_json(scores_json, scores_json_file_path)
                     scores_json = read_json(scores_json_file_path)

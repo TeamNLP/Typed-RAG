@@ -26,4 +26,4 @@ query = "What is Python?"
 rank = bm25.query(query, topk=10)  # topk should be <= 10000
 
 print("Query:", query)
-print("Rank:", rank)
+# print("Rank:", rank)

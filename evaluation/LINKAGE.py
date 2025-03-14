@@ -31,7 +31,7 @@ parser.add_argument(
     "--scorer_model_name",
     type=str,
     help="scorer_model_name",
-    choices=("mistralai/Mistral-7B-Instruct-v0.2", "gpt-4o-mini-2024-07-18"),
+    choices=("mistralai/Mistral-7B-Instruct-v0.2", "gpt-4o-mini-2024-07-18", "gpt-4o-2024-08-06"),
 )
 parser.add_argument(
     "--model_alias_to_evaluate",
@@ -41,7 +41,7 @@ parser.add_argument(
         "gpt-4o-mini",
         "mistral-7b-ins",
         "llama-3.2-3b-ins",
-        "llama-3.1-70b-ins",
+        "llama-3.1-8b-ins",
     ),
 )
 parser.add_argument(
@@ -98,8 +98,7 @@ def _make_linkage_prompt(
     question: str,
     reference_answer_list: List[str],
     candidate_answer: str,
-    use_gpt: bool,
-) -> Union[List[Dict[str, str]], str]:
+) -> List[Dict[str, str]]:
     """
     Creates a formatted prompt for ranking the candidate answer against reference answers.
 
@@ -107,10 +106,9 @@ def _make_linkage_prompt(
     - question (str): The user's question.
     - reference_answer_list (list of str): List of reference answers in descending order of quality. (e.g., [best_answer, good_answer, average_answer, poor_answer])
     - candidate_answer (str): The answer to be ranked, generated using our RAG methodology, and intended for evaluation through the LINKAGE method.
-    - use_gpt: bool - whether to use GPT
 
     Returns:
-    - prompt: The formatted prompt {string or list of dictionaries}.
+    - prompt: The formatted prompt {list of dictionaries}.
     """
 
     # Modified create_ground_reference() function in https://github.com/babyyang525/LINKAGE-Listwise-NFQA-Evaluation/blob/main/LINKAGE_method/LINKAGE.py
@@ -119,7 +117,9 @@ def _make_linkage_prompt(
     for idx, ref_ans in enumerate(reference_answer_list):
         reference_answer_list_str += f"Answer {idx + 1}: {ref_ans}\n"
 
+    num_references_int_list = []
     num_references_int = len(reference_answer_list)
+    num_references_int_list.append(num_references_int)
     num_references_en = INT_TO_EN[num_references_int]
 
     # Generate the prompt
@@ -131,14 +131,11 @@ def _make_linkage_prompt(
         .replace("{#num_references_en}", num_references_en)
     )
 
-    if use_gpt:
-        formatted_chat_template = [
-            {"role": "system", "content": DEFAULT_SYS_PROMPT},
-            {"role": "user", "content": prompt},
-        ]
-        return formatted_chat_template
-    else:
-        return prompt
+    formatted_chat_template = [
+        {"role": "system", "content": DEFAULT_SYS_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    return formatted_chat_template, num_references_int_list
 
 
 # def linkage_run_gpt(
@@ -213,17 +210,20 @@ def _make_linkage_prompt(
 #     """
 
 
-def calculate_normalized_rank(rank: int, num_references: int) -> float:
+def calculate_normalized_rank(rank: Union[int, str], num_references: int) -> float:
     """
     Calculate the normalized rank from the raw rank and the number of reference answers.
 
     Args:
-    - rank (int): The raw rank.
+    - rank (Union[int, str]): The raw rank.
     - num_references (int): The number of reference answers.
 
     Returns:
     - normalized_rank (float): The normalized rank.
     """
+
+    if isinstance(rank, str):
+        rank = int(rank)
 
     normalized_rank = (rank - 1) / (num_references)
     return normalized_rank
@@ -231,7 +231,6 @@ def calculate_normalized_rank(rank: int, num_references: int) -> float:
 
 def make_linkage_prompt_batch(
     input_instances: List[Dict[str, Any]],
-    use_gpt: bool,
     num_references: int = 4,
     return_instances: bool = False,
 ):
@@ -240,13 +239,13 @@ def make_linkage_prompt_batch(
 
     Args:
     - input_instances (list of dictionaries): The list of input instances.
-    - use_gpt (bool): Whether to use GPT.
     - num_references (int): The number of reference answers.
-    - return_reference_answers (bool): Whether to return the reference answers.
+    - return_instances (bool): Whether to return the input instances.
 
     Returns:
-    - prompt_batch (list of str or list of list of dictionaries): The batch of prompts.
+    - prompt_batch (list of list of dictionaries): The batch of prompts.
     - num_references_list (list of int): The list of number of reference answers.
+    - num_references_int_list (list of int): The list of number of reference answers in integer.
     - input_instances (list of dictionaries): The list of input instances.
     """
 
@@ -274,15 +273,15 @@ def make_linkage_prompt_batch(
         instance["reference_answers"] = reference_answers
         num_references_list.append(len(reference_answers))
 
-        prompt = _make_linkage_prompt(
-            question, reference_answers, candidate_answer, use_gpt
+        prompt, num_references_int_list = _make_linkage_prompt(
+            question, reference_answers, candidate_answer
         )
         prompt_batch.append(prompt)
 
     if return_instances:
-        return prompt_batch, num_references_list, input_instances
+        return prompt_batch, num_references_list, num_references_int_list, input_instances
     else:
-        return prompt_batch, num_references_list
+        return prompt_batch, num_references_list, num_references_int_list
 
 
 def make_batch_request_dict(
@@ -336,6 +335,7 @@ def linkage_eval_batch(
     scorer_model_name: str,
     prompt_batch: Union[List[str], List[List[Dict[str, str]]]],
     use_gpt: bool,
+    num_references_int_list: List[int],
     openai_client: Optional[Any] = None,
     llm: Optional[LLM] = None,
     sampling_params: Optional[SamplingParams] = None,
@@ -425,19 +425,26 @@ def linkage_eval_batch(
 
             ranks.append(rank)
     else:
-        vllm_output_list = llm.generate(prompt_batch, sampling_params)
+        vllm_output_list = llm.chat(
+            messages=prompt_batch, 
+            sampling_params=sampling_params
+        )
         output_list = [output.outputs[0].text for output in vllm_output_list]
         for idx, output in enumerate(output_list):
             try:
                 rank = int(RANK_PATTERN.search(output).group(1))
                 assert rank > 0, f"Rank is not positive: {rank}"
+                num_references_int = num_references_int_list[idx]
             except Exception as e:
-                max_trial = 100
+                max_trial = 40
                 trial = 0
                 is_success = False
 
                 while trial < max_trial:
-                    vllm_output = llm.generate(prompt_batch[idx], sampling_params)
+                    vllm_output = llm.chat(
+                        messages=prompt_batch[idx], 
+                        sampling_params=sampling_params
+                    )
                     output = vllm_output[0].outputs[0].text
                     try:
                         rank = int(RANK_PATTERN.search(output).group(1))
@@ -451,7 +458,8 @@ def linkage_eval_batch(
                         trial += 1
 
                 if is_success is False:
-                    rank = output
+                    # If the rank cannot be extracted, use the number of references
+                    rank = num_references_int
 
             ranks.append(rank)
 
@@ -461,12 +469,17 @@ def linkage_eval_batch(
 def openai_batch_api_run(args):
     assert args.use_openai_batch_api, "OpenAI Batch API is not enabled."
     assert (
-        args.scorer_model_name == "gpt-4o-mini-2024-07-18"
-    ), "OpenAI Batch API is only available for GPT-4o-mini-2024-07-18"
+        args.scorer_model_name == "gpt-4o-mini-2024-07-18" or args.scorer_model_name == "gpt-4o-2024-08-06"
+    ), "OpenAI Batch API is only available for GPT-4o-mini-2024-07-18 or GPT-4o-2024-08-06"
+
+    if args.scorer_model_name == "gpt-4o-mini-2024-07-18":
+        SCORER_MODEL_ALIAS = "gpt-4o-mini"
+    elif args.scorer_model_name == "gpt-4o-2024-08-06":
+        SCORER_MODEL_ALIAS = "gpt-4o"
 
     USE_GPT = True
-    SCORER_MODEL_ALIAS = "gpt-4o-mini"
     openai_api_key = os.environ.get("OPENAI_API_KEY")
+    OPENAI_CLIENT = OpenAI(api_key=openai_api_key)
     OPENAI_CLIENT = OpenAI(api_key=openai_api_key)
 
     batch_file_directory = os.path.join(
@@ -477,7 +490,7 @@ def openai_batch_api_run(args):
     )
     if not os.path.exists(batch_file_directory):
         os.makedirs(batch_file_directory)
-    batch_info_dict_filepath = os.path.join(batch_file_directory, "batch_info.json")
+    batch_info_dict_filepath = os.path.join(batch_file_directory, f"batch_info_{SCORER_MODEL_ALIAS}.json")
 
     output_directory = os.path.join(
         "evaluation", "LINKAGE_results", args.model_alias_to_evaluate
@@ -515,9 +528,8 @@ def openai_batch_api_run(args):
                 str(instance["question_id"]) for instance in input_instances
             ]
 
-            prompt_batch, num_references_list, instances = make_linkage_prompt_batch(
+            prompt_batch, num_references_list, num_references_int_list, instances = make_linkage_prompt_batch(
                 input_instances,
-                USE_GPT,
                 num_references=args.num_references,
                 return_instances=True,
             )
@@ -836,9 +848,12 @@ def main(args):
     llm = None
     sampling_params = None
 
-    if args.scorer_model_name == "gpt-4o-mini-2024-07-18":
+    if args.scorer_model_name in ["gpt-4o-mini-2024-07-18", "gpt-4o-2024-08-06"]:
         USE_GPT = True
-        SCORER_MODEL_ALIAS = "gpt-4o-mini"
+        if args.scorer_model_name == "gpt-4o-mini-2024-07-18":
+            SCORER_MODEL_ALIAS = "gpt-4o-mini"
+        elif args.scorer_model_name == "gpt-4o-2024-08-06":
+            SCORER_MODEL_ALIAS = "gpt-4o"
         openai_api_key = os.environ.get("OPENAI_API_KEY")
         OPENAI_CLIENT = OpenAI(api_key=openai_api_key)
     elif args.scorer_model_name == "mistralai/Mistral-7B-Instruct-v0.2":
@@ -879,9 +894,8 @@ def main(args):
         print(f"Reading {input_filepath}")
         input_instances = read_jsonl(input_filepath)
 
-        prompt_batch, num_references_list, instances = make_linkage_prompt_batch(
+        prompt_batch, num_references_list, num_references_int_list, instances = make_linkage_prompt_batch(
             input_instances,
-            USE_GPT,
             num_references=args.num_references,
             return_instances=True,
         )
@@ -889,9 +903,10 @@ def main(args):
             args.scorer_model_name,
             prompt_batch,
             USE_GPT,
+            num_references_int_list,
             OPENAI_CLIENT,
             llm,
-            sampling_params,
+            sampling_params
         )
 
         NR_list = []
@@ -942,7 +957,7 @@ if __name__ == "__main__":
 
     if args.use_openai_batch_api:
         assert (
-            args.scorer_model_name == "gpt-4o-mini-2024-07-18"
+            args.scorer_model_name == "gpt-4o-mini-2024-07-18" or args.scorer_model_name == "gpt-4o-2024-08-06"
         ), "OpenAI Batch API is only available for GPT-4o-mini-2024-07-18"
         openai_batch_api_run(args)
 
@@ -957,24 +972,24 @@ if __name__ == "__main__":
     question = "What is wifi vs bluetooth ?"
     
     # Reference Answers 
-    # (4점 만점) Best Answer: 4점/4점, Good Answer: 3점/4점, Average Answer: 2점/4점, Poor Answer: 1점/4점
+    # (out of 4) Best Answer: 4 points/4 points, Good Answer: 3 points/4 points, Average Answer: 2 points/4 points, Poor Answer: 1 point/4 points
     best_answer = "Wi-Fi and Bluetooth are to some extent complementary in their applications andusage. Wi-Fi isusually access point-centered, with an asymmetrical client-server connection with all traffic routed through the access point, while Bluetooth is usually symmetrical, between two Bluetooth devices."
     good_answer = "Bluetooth vs. WiFi - Range: Maximum range for Bluetooth based wireless connections is 30m while for Wi-Fi, it can extend well upto 100m. In Wi-Fi, range depends on the version of Wi-Fi protocol applied and addition of antennas in the communication system while no such concerns of range or extra antenna are much known in Bluetooth. . Bluetooth vs. WiFi - Devices Connected: In Bluetooth, upto 7 devices can be connected to each other (piconet) while in Wi-Fi, the maximum connections depend on Wi-Fi router which can accommodate 1 to several communicating devices at a time."
     average_answer = "Bluetooth and WiFi are different standards for wireless communication. Bluetooth technology is useful when transferring information between two or more devices that are near each other when speed is not anissue,such as telephones, printers, modems and headsets."
     poor_answer = "Headphones use over 90% of available Bluetooth bandwidth. If you initiate anyother Bluetooth activity (view devices in range, or try to use any other Bluetooth services), the music may play intermittently, skip, or the headphone's synchronization with the audio source may disconnect."
     reference_answer_list = [best_answer, good_answer, average_answer, poor_answer]
     
-    # LINKAGE 방식으로 평가하고자 하는 답변
-    # 여기서는 우리 RAG 방법론으로 생성한 답변
+    # The answer that we want to evaluate with the LINKAGE method
+    # the answer we generated with our RAG methodology
     candidate_answer_bad = "Learn about Bluetooth and Wi-Fi for your Apple Watch, and why you should use both. To enjoy every feature on your Apple Watch, you need to turn on Wi-Fi and Bluetooth on your paired iPhone. Swipe up on your iPhone to open Control Center."
     candidate_answer_good = "You can also share a smart phone mobile data connection withother devices via the wireless Bluetooth radio. This is knownas a Bluetooth personal are a network, or PAN. Devices that include Bluetooth radios canc onnect to the smartphone via Bluetooth and access the Internet through it."
     # ------------- example endpoint-------------------------
 
     rank = linkage_run_gpt(question, reference_answer_list, candidate_answer_good)
 
-    # 반복 평가 3회 결과 보자
+    # Repeat evaluation 3 times
     for i in range(3):
-        print(i,"회")
+        print(i,"evaluation")
         rank = linkage_run_gpt(question, reference_answer_list, candidate_answer_good)
         print(rank)
         print()
