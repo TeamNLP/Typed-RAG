@@ -19,7 +19,6 @@ data/processed_data/*
 # data/reference_list_construction/squad/*
 # data/reference_list_construction/trivia/*
 
-
 retriever/elasticsearch-7.9.1-linux-x86_64.tar.gz
 retriever/elasticsearch-7.9.1/*
 !retriever/elasticsearch-7.9.1/.gitkeep
@@ -27,8 +26,6 @@ retriever/wiki_corpus.json
 !retriever/sample_corpus.json
 retriever/bing_search_result_cache/*
 retriever/bm25_result_cache/*
-
-
 
 logs/
 *.log
@@ -47,6 +44,8 @@ evaluation/LINKAGE_results/*
 experiments/results/*
 experiments/prompt_batch/*
 
+huggingface_readme.md
+upload_dataset_modified.py
 
 ##################
 
