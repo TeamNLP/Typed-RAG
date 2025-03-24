@@ -1,12 +1,22 @@
 # <div align="center">Typed-RAG</div>
 
 <div align="center">
-<a href="https://arxiv.org/abs/2503.15879" target="_blank"><img src=https://img.shields.io/badge/arXiv-b5212f.svg?logo=arxiv></a>
-<a href="https://huggingface.co/datasets/oneonlee/Wiki-NFQA" target="_blank"><img src=https://img.shields.io/badge/%F0%9F%A4%97-HuggingFace%20Datasets-yellow.svg></a>
+<a href="https://arxiv.org/abs/2503.15879" target="_blank"><img src=https://img.shields.io/badge/Paper-arXiv-b5212f.svg?logo=arxiv></a>
+<a href="https://huggingface.co/datasets/oneonlee/Wiki-NFQA" target="_blank"><img src=https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face%20Datasets-yellow.svg></a>
 <a href="https://github.com/TeamNLP/Typed-RAG/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg"></a>
+<a href="https://www.python.org/downloads/release/python-390" target="_blank"><img src=https://img.shields.io/badge/Python-3.9-blue.svg></a>
 </div>
 
-## Wiki-NFQA Dataset
+
+## 📣 Latest News
+- **03/22/2025**: The Wiki-NFQA dataset is released at [Hugging Face Datasets](https://huggingface.co/datasets/oneonlee/Wiki-NFQA).
+- **03/20/2025**: The paper and code for Typed-RAG is available. You can access the paper on [arXiv](https://arxiv.org/abs/2503.15879) and [HF-paper](https://huggingface.co/papers/2503.15879).
+- **03/13/2025**: The paper for Typed-RAG is accepted at [NAACL 2025 SRW](https://naacl2025-srw.github.io/accepted)!
+
+## 💡 Overview
+Typed-RAG enhances retrieval-augmented generation for non-factoid question-answering (NFQA) through type-aware multi-aspect query decomposition, delivering more contextually relevant and comprehensive responses.
+
+## 📚 Wiki-NFQA Dataset
 The Wiki-NFQA Dataset is a curated benchmark designed for evaluating open-domain question answering (ODQA) systems with non-factoid questions. The dataset is available on Hugging Face.
 
 ```python
@@ -19,7 +29,7 @@ wiki_nfqa_dataset = load_dataset("oneonlee/Wiki-NFQA", "Wiki-NFQA", split="test"
 reference_answers = load_dataset("oneonlee/Wiki-NFQA", "reference_answer_list", split="test")
 ```
 
-## Usage
+## 🔧 Usage
 ### Installation
 ```bash
 conda create -n nfqa python=3.9
@@ -71,5 +81,18 @@ python evaluation/extract_results.py
 python evaluation/concat_prediction_files.py
 ```
 
-## License
+## 📄 Citation
+```bib
+@misc{lee2025typedrag,
+      title={Typed-RAG: Type-aware Multi-Aspect Decomposition for Non-Factoid Question Answering}, 
+      author={DongGeon Lee and Ahjeong Park and Hyeri Lee and Hyeonseo Nam and Yunho Maeng},
+      year={2025},
+      eprint={2503.15879},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2503.15879}, 
+}
+```
+
+## 📄 License
 This project is licensed under the [CC BY-SA 4.0 license](https://github.com/TeamNLP/Typed-RAG/blob/main/LICENSE).
